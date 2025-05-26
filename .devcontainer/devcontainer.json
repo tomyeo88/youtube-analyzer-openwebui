@@ -1,0 +1,35 @@
+/*
+* Dev container configuration file for Openwebui demo in class HAI5014
+* Sungkyunkwan University 2025 Spring Semester - by camphouse.me
+*/
+
+{
+    "name": "Python 3",
+    // Use the official Python 3.11 image as a base
+    // "image": "mcr.microsoft.com/devcontainers/python:0-3.11-bullseye",
+    "image": "python:3.11-bookworm",
+    "features": {
+    },
+
+    // Configure the Codespaces Machine to use 2 CPUs
+    "hostRequirements": {
+        "cpus": 2
+    },
+
+    // Use 'postCreateCommand' to run commands after the container is created.
+    // "postCreateCommand": "pip3 install --user -r requirements.txt",
+    "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=$HOME/.local/bin:$PATH && uv pip install --system -r requirements.txt",
+
+    // Use runArgs to load environment variables from .env file
+    "runArgs": ["--env-file", "${localWorkspaceFolder}/.env"],
+    
+    // Install preferred extensions into VS Code
+    "customizations": {
+        "vscode": {
+        "extensions": [
+        "github.copilot",
+        "ms-python.python"
+        ]
+    }
+    }
+}

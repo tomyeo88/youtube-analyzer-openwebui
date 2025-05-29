@@ -1,28 +1,350 @@
 import os
+import re
+import base64
 import requests
 from datetime import datetime
 from pydantic import BaseModel, Field
-import re
-from bs4 import BeautifulSoup
-
+from youtube_transcript_api import YouTubeTranscriptApi
+from pytube import YouTube
+from openai import OpenAI
+from PIL import Image
+from io import BytesIO
+import json
 
 class Tools:
     def __init__(self):
-        pass
+        # Initialize OpenAI client for Gemini API
+        self.client = OpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            base_url=os.getenv("OPENAI_API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai")
+        )
+        self.model = os.getenv("DEFAULT_MODELS", "gemini-2.5-flash-preview-05-20")
 
-    # Add your custom tools using pure Python code here, make sure to add type hints and descriptions
+    def extract_youtube_video_id(self, url: str) -> str:
+        """Extract YouTube video ID from various URL formats."""
+        patterns = [
+            r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([^&\n?#]+)',
+            r'youtube\.com/watch\?.*v=([^&\n?#]+)'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        return None
 
+    def get_youtube_transcript(self, video_id: str) -> str:
+        """Get transcript for a YouTube video."""
+        try:
+            # Get available transcripts
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            
+            # Try to get the best available transcript
+            transcript = None
+            
+            # First try English
+            try:
+                transcript = transcript_list.find_transcript(['en'])
+            except:
+                # If no English, get any available transcript
+                try:
+                    # Get the first available transcript
+                    for available_transcript in transcript_list:
+                        transcript = available_transcript
+                        break
+                except:
+                    pass
+            
+            if transcript is None:
+                return "Error getting transcript: No transcripts available"
+            
+            # Fetch the actual transcript data
+            transcript_data = transcript.fetch()
+            
+            # Extract text from transcript entries
+            if isinstance(transcript_data, list):
+                full_transcript = " ".join([
+                    entry.get('text', '') if isinstance(entry, dict) else str(entry)
+                    for entry in transcript_data
+                ])
+            else:
+                full_transcript = str(transcript_data)
+            
+            return full_transcript
+            
+        except Exception as e:
+            return f"Error getting transcript: {str(e)}"
+
+    def get_youtube_metadata(self, url: str) -> dict:
+        """Get YouTube video metadata including thumbnail."""
+        video_id = self.extract_youtube_video_id(url)
+        
+        try:
+            # Sometimes PyTube can have issues, so we'll add retry logic
+            import time
+            max_retries = 2  # Reduced retries to fail faster
+            for attempt in range(max_retries):
+                try:
+                    yt = YouTube(url)
+                    
+                    metadata = {
+                        'title': yt.title,
+                        'description': yt.description,
+                        'length': yt.length,
+                        'views': yt.views,
+                        'author': yt.author,
+                        'publish_date': yt.publish_date.isoformat() if yt.publish_date else None,
+                        'thumbnail_url': yt.thumbnail_url
+                    }
+                    
+                    return metadata
+                    
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise e
+                    time.sleep(0.5)  # Shorter wait
+            
+        except Exception as e:
+            # If PyTube fails, return basic info with working thumbnail URL
+            print(f"PyTube failed: {e}, using fallback method")
+            return {
+                'title': f'YouTube Video',
+                'description': 'Video description unavailable (using fallback method)',
+                'length': 0,
+                'views': 'Unknown',
+                'author': 'Unknown Channel',
+                'publish_date': None,
+                'thumbnail_url': f'https://img.youtube.com/vi/{video_id}/maxresdefault.jpg',
+                'fallback_mode': True
+            }
+
+    def encode_image_from_url(self, image_url: str) -> str:
+        """Download and encode image from URL to base64."""
+        try:
+            response = requests.get(image_url)
+            response.raise_for_status()
+            
+            # Convert to base64
+            image_data = base64.b64encode(response.content).decode('utf-8')
+            return image_data
+            
+        except Exception as e:
+            return None
+
+    def analyze_video_with_gemini(self, youtube_url: str) -> str:
+        """
+        Analyze YouTube video directly using Gemini's video understanding capability.
+        """
+        try:
+            # Prepare the analysis prompt for video understanding
+            analysis_prompt = """
+            Please analyze this YouTube video and provide a comprehensive summary. Include:
+
+            1. A concise summary (2-3 sentences) of the main topic and content
+            2. Key points covered in the video (bullet points)
+            3. Target audience and content style assessment
+            4. Main takeaways or conclusions
+            5. Overall assessment of content quality and production value
+            6. Any notable visual elements, graphics, or presentation style
+
+            Focus on both the spoken content and visual elements of the video.
+            """
+
+            # Use Gemini's video understanding with the YouTube URL
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": analysis_prompt
+                        },
+                        {
+                            "type": "video",
+                            "video": {
+                                "url": youtube_url
+                            }
+                        }
+                    ]
+                }
+            ]
+            
+            # Call Gemini API with video understanding
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=2000,
+                temperature=0.7
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            return f"Error analyzing video with Gemini: {str(e)}"
+
+    def summarize_youtube_video(
+        self,
+        youtube_url: str = Field(
+            ..., description="The YouTube video URL to analyze and summarize."
+        ),
+    ) -> str:
+        """
+        Analyze and summarize a YouTube video using Gemini's native video understanding.
+        Falls back to transcript + thumbnail analysis if video understanding fails.
+        """
+        
+        # Extract video ID
+        video_id = self.extract_youtube_video_id(youtube_url)
+        if not video_id:
+            return "Error: Invalid YouTube URL format."
+        
+        # Get video metadata
+        metadata = self.get_youtube_metadata(youtube_url)
+        
+        # Try Gemini's native video understanding first
+        print("Attempting video analysis with Gemini's video understanding...")
+        gemini_analysis = self.analyze_video_with_gemini(youtube_url)
+        
+        if not gemini_analysis.startswith("Error"):
+            # Video understanding succeeded
+            result = f"""
+# YouTube Video Summary (Video Analysis)
+
+**Video:** {metadata.get('title', 'N/A')}
+**Channel:** {metadata.get('author', 'N/A')}
+**Duration:** {metadata.get('length', 0)//60}:{metadata.get('length', 0)%60:02d}
+**Views:** {metadata.get('views', 'Unknown')}
+
+---
+
+{gemini_analysis}
+
+---
+*Analysis completed using Gemini 2.5 Flash Video Understanding*
+            """
+            return result.strip()
+        
+        # Fallback to transcript + thumbnail analysis
+        print("Video understanding failed, falling back to transcript + thumbnail analysis...")
+        print(f"Video understanding error: {gemini_analysis}")
+        
+        # Get transcript
+        transcript = self.get_youtube_transcript(video_id)
+        if transcript.startswith("Error"):
+            # If transcript fails, we can still provide thumbnail analysis
+            transcript = "Transcript not available for this video. Analysis will be based on thumbnail and metadata only."
+        
+        # Get and encode thumbnail
+        thumbnail_base64 = None
+        if metadata.get('thumbnail_url'):
+            thumbnail_base64 = self.encode_image_from_url(metadata['thumbnail_url'])
+        
+        # Prepare the analysis prompt
+        analysis_prompt = f"""
+        Please analyze this YouTube video and provide a comprehensive summary. Here's the information:
+
+        **Video Metadata:**
+        - Title: {metadata.get('title', 'N/A')}
+        - Author: {metadata.get('author', 'N/A')}
+        - Duration: {metadata.get('length', 0)} seconds
+        - Views: {metadata.get('views', 'N/A')}
+        - Published: {metadata.get('publish_date', 'N/A')}
+
+        **Video Content:**
+        {transcript[:3000]}  # Limit transcript to avoid token limits
+
+        Please provide:
+        1. A concise summary (2-3 sentences) of the main topic
+        2. Key points covered in the video (bullet points)
+        3. Target audience and content style
+        4. Main takeaways or conclusions
+        5. Overall assessment of content quality
+
+        Focus on the actual content rather than just metadata.
+        """
+
+        try:
+            # Start with text-only analysis
+            messages = [
+                {
+                    "role": "user",
+                    "content": analysis_prompt
+                }
+            ]
+            
+            # Call Gemini API
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=1500,
+                temperature=0.7
+            )
+            
+            summary = response.choices[0].message.content
+            
+            # Add thumbnail analysis if available
+            thumbnail_analysis = ""
+            if metadata.get('thumbnail_url') and not metadata.get('fallback_mode'):
+                thumbnail_base64 = self.encode_image_from_url(metadata['thumbnail_url'])
+                if thumbnail_base64:
+                    print("Adding thumbnail analysis...")
+                    thumbnail_messages = [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "Please analyze this YouTube video thumbnail and comment on its visual appeal, design quality, and how well it represents the content."
+                                },
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/jpeg;base64,{thumbnail_base64}"
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                    
+                    thumbnail_response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=thumbnail_messages,
+                        max_tokens=300,
+                        temperature=0.7
+                    )
+                    
+                    thumbnail_analysis = f"\n\n**Thumbnail Analysis:**\n{thumbnail_response.choices[0].message.content}"
+            
+            # Format the final response
+            result = f"""
+# YouTube Video Summary (Fallback Method)
+
+**Video:** {metadata.get('title', 'N/A')}
+**Channel:** {metadata.get('author', 'N/A')}
+**Duration:** {metadata.get('length', 0)//60}:{metadata.get('length', 0)%60:02d}
+**Views:** {metadata.get('views', 'Unknown')}
+
+---
+
+{summary}{thumbnail_analysis}
+
+---
+*Analysis completed using Gemini 2.5 Flash (Fallback: Transcript + Thumbnail)*
+            """
+            
+            return result.strip()
+            
+        except Exception as e:
+            return f"Error during analysis: {str(e)}"
+	
     def get_user_name_and_email_and_id(self, __user__: dict = {}) -> str:
         """
         Get the user name, Email and ID from the user object.
         """
-
         # Do not include a descrption for __user__ as it should not be shown in the tool's specification
         # The session user object will be passed as a parameter when the function is called
 
-        print(__user__)
         result = ""
-
         if "name" in __user__:
             result += f"User: {__user__['name']}"
         if "id" in __user__:
@@ -39,244 +361,7 @@ class Tools:
         """
         Get the current time in a more human-readable format.
         """
-
         now = datetime.now()
-        current_time = now.strftime("%I:%M:%S %p")  # Using 12-hour format with AM/PM
-        current_date = now.strftime(
-            "%A, %B %d, %Y"
-        )  # Full weekday, month name, day, and year
-
+        current_time = now.strftime("%I:%M:%S %p")
+        current_date = now.strftime("%A, %B %d, %Y")
         return f"Current Date and Time = {current_date}, {current_time}"
-
-    def calculator(
-        self,
-        equation: str = Field(
-            ..., description="The mathematical equation to calculate."
-        ),
-    ) -> str:
-        """
-        Calculate the result of an equation.
-        """
-
-        # Avoid using eval in production code
-        # https://nedbatchelder.com/blog/201206/eval_really_is_dangerous.html
-        try:
-            result = eval(equation)
-            return f"{equation} = {result}"
-        except Exception as e:
-            print(e)
-            return "Invalid equation"
-
-    def get_current_weather(
-        self,
-        city: str = Field(
-            "New York, NY", description="Get the current weather for a given city."
-        ),
-    ) -> str:
-        """
-        Get the current weather for a given city.
-        """
-
-        api_key = os.getenv("OPENWEATHER_API_KEY")
-        if not api_key:
-            return (
-                "API key is not set in the environment variable 'OPENWEATHER_API_KEY'."
-            )
-
-        base_url = "http://api.openweathermap.org/data/2.5/weather"
-        params = {
-            "q": city,
-            "appid": api_key,
-            "units": "metric",  # Optional: Use 'imperial' for Fahrenheit
-        }
-
-        try:
-            response = requests.get(base_url, params=params)
-            response.raise_for_status()  # Raise HTTPError for bad responses (4xx and 5xx)
-            data = response.json()
-
-            if data.get("cod") != 200:
-                return f"Error fetching weather data: {data.get('message')}"
-
-            weather_description = data["weather"][0]["description"]
-            temperature = data["main"]["temp"]
-            humidity = data["main"]["humidity"]
-            wind_speed = data["wind"]["speed"]
-
-            return f"Weather in {city}: {temperature}°C"
-        except requests.RequestException as e:
-            return f"Error fetching weather data: {str(e)}"
-
-    def get_skku_news(self, limit: int = 5) -> str:
-        """
-        Fetch the latest news from Sungkyunkwan University (SKKU) website.
-        
-        Args:
-            limit: The number of news items to return (default: 5)
-            
-        Returns:
-            A formatted string with news titles, dates, and URLs.
-        """
-        """
-        Fetch the latest news from Sungkyunkwan University (SKKU) website.
-        Returns a formatted string with news titles, dates, and URLs.
-        """
-        try:
-            # URL of the SKKU main page
-            url = "https://www.skku.edu/skku/index.do"
-            
-            # Set up headers to mimic a real browser
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5'
-            }
-            
-            # Create a session to handle cookies
-            session = requests.Session()
-            
-            # Send a GET request to the website
-            response = session.get(url, headers=headers)
-            response.raise_for_status()  # Raise an exception for HTTP errors
-            
-            # Parse the HTML content
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Find the news section
-            news_items = []
-            
-            # Print page content for debugging
-            print(f"Page content length: {len(response.text)}")
-            print(f"Response status code: {response.status_code}")
-            
-            # Let's try to get the "News and Announcements" section specifically
-            # Try to fetch the main news page for better results
-            main_news_url = "https://www.skku.edu/skku/campus/skk_comm/news.do"
-            print(f"Trying to fetch news from: {main_news_url}")
-            
-            # Send another request to the main news page
-            news_response = session.get(main_news_url, headers=headers)
-            if news_response.status_code == 200:
-                print(f"Successfully fetched main news page")
-                # Update soup to use the news page
-                soup = BeautifulSoup(news_response.text, 'html.parser')
-            
-            # Try multiple selectors to find news items
-            selectors = [
-                ".board-list li a",            # Board list items
-                ".news-list a",                # Original selector
-                ".board-wrap a",               # Board wrapper links
-                "a.board-item",                # Board item links
-                "a[href*='articleNo']",        # Links with article numbers
-                ".board-row a",                # Board row links
-                "tbody tr td a",               # Table cells with links
-                ".notice-list a"               # Notice list links
-            ]
-            
-            found_items = False
-            # Try each selector
-            for selector in selectors:
-                news_section = soup.select(selector)
-                print(f"Selector '{selector}' found {len(news_section)} items")
-                
-                if len(news_section) > 0:
-                    found_items = True
-                    break
-                    
-            if not found_items:
-                # If no specific selectors worked, try more generic ones
-                news_section = soup.select("a[href*='mode=view']")
-                print(f"Generic selector found {len(news_section)} items")
-            
-            # Process each news item
-            for item in news_section:
-                # Get the URL - SKKU uses relative URLs
-                news_url = item.get('href')
-                if news_url:
-                    if not news_url.startswith('http'):
-                        # Handle URLs that start with just parameters
-                        if news_url.startswith('?'):
-                            news_url = f"https://www.skku.edu/skku/campus/skk_comm/news.do{news_url}"
-                        else:
-                            news_url = f"https://www.skku.edu{news_url}"
-                
-                # Get the title and date
-                title = item.get_text(strip=True)
-                
-                # Look for date in different formats
-                date_span = item.select_one(".date") or item.select_one(".board-date") or item.select_one(".datetime")
-                date = date_span.get_text(strip=True) if date_span else ""
-                
-                # If no date found in the element itself, try parent or siblings
-                if not date:
-                    # Try to find date in parent or sibling elements
-                    parent = item.parent
-                    if parent:
-                        date_elem = parent.select_one(".date") or parent.select_one(".board-date")
-                        if date_elem:
-                            date = date_elem.get_text(strip=True)
-                
-                # Clean up the title
-                # Remove date from title if it's part of the text
-                if date and date in title:
-                    title = title.replace(date, "").strip()
-                
-                # Clean up the title further by removing any special characters at the start/end
-                title = title.strip(' \t\n\r·:,;')
-                
-                # Add to our list if we have a title and URL
-                if title and news_url:
-                    # Some specifics for this website - filter out navigation links
-                    skip_keywords = ['자세히 보기', '더보기', '목록', '검색', 'login', 'previous', 'next']
-                    if not any(keyword in title.lower() for keyword in skip_keywords):
-                        news_items.append({
-                            "title": title,
-                            "url": news_url,
-                            "date": date
-                        })
-                
-                # Stop when we reach the limit
-                if len(news_items) >= limit:
-                    break
-            
-            # If no news found, try an alternative approach
-            if not news_items:
-                # Look for news in a different format that might be present
-                alt_news = soup.select(".news-inner")
-                for news in alt_news[:limit]:
-                    link = news.select_one("a")
-                    if link:
-                        title = link.get_text(strip=True)
-                        news_url = link.get('href')
-                        if news_url and not news_url.startswith('http'):
-                            news_url = f"https://www.skku.edu{news_url}"
-                        
-                        date_elem = news.select_one(".date")
-                        date = date_elem.get_text(strip=True) if date_elem else ""
-                        
-                        if title:
-                            news_items.append({
-                                "title": title,
-                                "url": news_url,
-                                "date": date
-                            })
-            
-            # Format the results
-            if news_items:
-                result = "📰 Latest News from Sungkyunkwan University (SKKU):\n\n"
-                for idx, item in enumerate(news_items, 1):
-                    result += f"{idx}. {item['title']}"
-                    if item['date']:
-                        result += f" ({item['date']})"
-                    result += f"\n   🔗 {item['url']}\n\n"
-                return result
-            else:
-                return "Could not find any news on the SKKU website. Please check back later or visit https://www.skku.edu/skku/index.do directly."
-                
-        except requests.RequestException as e:
-            return f"Error fetching news from SKKU: {str(e)}\nPlease visit the official website at https://www.skku.edu/skku/index.do"
-        except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
-            print(f"Error parsing SKKU website: {error_details}")
-            return f"Error processing news from SKKU: {str(e)}\nPlease visit the official website at https://www.skku.edu/skku/index.do"

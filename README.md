@@ -1,120 +1,224 @@
-# HAI-5014 Open WebUI demo
+# YouTube Analyzer with Gemini Native API for OpenWebUI
 
-Repo for the Open WebUI demo in class HAI5014. Before installing the Open WebUI, make sure you have the following:
+A comprehensive YouTube video analysis tool with native Google Gemini API integration for OpenWebUI. This setup provides direct video understanding capabilities, enhanced performance, and access to the latest Gemini models.
 
-- A Google Gemini API key
-- A Supabase account
+## 🎯 Features
 
-## Supabase
+### YouTube Analysis Tool
+- **Video Summarizer**: Analyzes YouTube videos using both transcript and thumbnail image
+- **Content Understanding**: Direct video processing with Gemini 2.5 Flash Preview
+- **Thumbnail Analysis**: Evaluates visual appeal and design quality
+- **Comprehensive Summaries**: Structured summaries with key points and takeaways
 
-- Create new project in Supabase called `openwebui` [https://supabase.com/dashboard/](https://supabase.com/dashboard/)
-- Copy `Session pooled (Shared Pooler)` connection string
+### Gemini Native API Integration
+- **Direct API Access**: Native connection to Google's Gemini API (no OpenAI compatibility layer)
+- **Video Understanding**: Native YouTube URL processing and analysis
+- **Auto-Detection**: Automatically detects and processes YouTube URLs in messages
+- **All Gemini Models**: Support for Gemini 2.5, 2.0, and 1.5 series
+- **Enhanced Performance**: Better latency and feature access
+- **Streaming Support**: Real-time streaming responses
+- **Multimodal Input**: Text, image, and video support
 
-If you are using Codespaces:
+## 🚀 Quick Start
 
-- Save this connection string as `DATABASE_URL` and `PGVECTOR_DB_URL` environment variable (In Codespace settings, secrets & variables)
+### Prerequisites
+1. **Google AI Studio API Key**: Get your free key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. **Supabase Account**: For OpenWebUI database (optional for local setup)
+3. **Python 3.10+** or **Docker**
 
-If you are running this locally:
+### Option 1: Codespaces (Recommended)
 
-- Rename `.env.example` to `.env` and fill in the required environment variables
-- Save the connection string as `DATABASE_URL` and `PGVECTOR_DB_URL` environment variable in `.env` file
+1. **Open in Codespaces**
+2. **Set Environment Variables** in Codespace settings:
+   ```
+   DATABASE_URL=your_supabase_connection_string
+   PGVECTOR_DB_URL=your_supabase_connection_string
+   OPENAI_API_KEY=your_gemini_api_key
+   ```
+3. **Run OpenWebUI**:
+   ```bash
+   dotenv run open-webui serve
+   ```
 
-## Google Gemini API key
+### Option 2: Local Python Environment
 
-- Get your Google gemini API key [https://aistudio.google.com/app/apikeys](https://aistudio.google.com/app/apikeys)
+1. **Clone and setup**:
+   ```bash
+   git clone <repository>
+   cd youtube-analyzer-openwebui
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
 
-If you are using Codespaces:
+2. **Configure environment**:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your API keys
+   ```
 
-- Save this API key as `OPENAI_API_KEY` environment variable (In Codespace settings, secrets & variables)
+3. **Run OpenWebUI**:
+   ```bash
+   dotenv run open-webui serve
+   ```
 
-If you are running this locally:
+4. **Access**: Open [http://localhost:8080](http://localhost:8080)
 
-- Make sure that your file `.env.example` is renamed to `.env` and fill in the required environment variables
-- Save the API key as `OPENAI_API_KEY` environment variable in `.env` file
+## 🔧 Setup Native Gemini API
 
-## Codespace
+### 1. Install the Gemini Native Function
 
-- Open repo in Codespaces
-- Check if the environment variables are set correctly by running `echo $DATABASE_URL` and `echo $PGVECTOR_DB_URL`
-- Run OpenWebUI with the command `dotenv run open-webui serve`
+1. **Access OpenWebUI Admin**:
+   - Go to your OpenWebUI instance
+   - Click your profile → **Admin Panel** → **Functions**
 
-A pop-up should indicate that a webserver has launched. If not, click the "ports" tab in the terminal window, and open the website.
+2. **Install Function**:
+   - Click **Create New Function**
+   - Copy the entire content from `gemini_native_function.py`
+   - Paste and **Save**
 
-Walk through the Open WebUI *get started* wizard and create an admin account. Make sure to remember your password :)
+### 2. Configure API Key
 
-### Additional settings
+1. **Function Settings**:
+   - Find "Gemini Native API" in functions list
+   - Click the settings (gear) icon
+   - Set **GEMINI_API_KEY** to your Google AI Studio API key
+   - Ensure **ENABLE_VISION**: `true`
+   - Ensure **AUTO_DETECT_YOUTUBE**: `true`
+   - **Save**
 
-#### Standard model:
+### 3. Available Models
 
-In the Open WebUI **admin panel**, go to Settings -> Models
+The native function provides access to:
 
-- Click the gear icon on the upper right
-- Scroll down to 'Default Models' and select a model (e.g. `gemini-2.5-flash-preview`)  
+#### Gemini 2.5 Series (Latest)
+- `gemini-2.5-flash-preview-05-20` - Latest with enhanced video capabilities
 
-#### Embeddings model
+#### Gemini 2.0 Series  
+- `gemini-2.0-flash-exp` - Latest experimental version
+- `gemini-2.0-flash-thinking-exp` - Enhanced reasoning capabilities
 
-In the Open WebUI **admin panel**, go to Settings -> Documents -> Embedding and change the following
+#### Gemini 1.5 Series
+- `gemini-1.5-flash` - Fast and versatile
+- `gemini-1.5-flash-8b` - High volume tasks  
+- `gemini-1.5-pro` - Complex reasoning (2M tokens)
 
-- Embedding Model Engine: `https://generativelanguage.googleapis.com/v1beta/openai`
-- API Key: your Google API key
-- Embedding Model: `text-embedding-004`
+## 🎥 Video Understanding Usage
 
+### Basic Video Analysis
+```
+Analyze this video: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+What are the main topics discussed?
+```
 
-## Want to run this locally?
+### Multiple Videos
+```
+Compare these two videos:
+https://www.youtube.com/watch?v=video1
+https://www.youtube.com/watch?v=video2
+```
 
-There are two options to run this locally:
+### With Timestamps
+```
+What happens at 2:30 in this video?
+https://www.youtube.com/watch?v=example
+```
 
-1. Run open-webui in a Python *virtual environment* on your local machine
-2. Install docker and open the repository in a *devcontainer* on your local machine
+### Using the YouTube Analyzer Tool
+```python
+from tool import Tools
 
-### Option 1: Python virtual environment
+tools = Tools()
+result = tools.summarize_youtube_video("https://www.youtube.com/watch?v=VIDEO_ID")
+print(result)
+```
 
-1. Make sure you have Python 3.10+ installed
-2. Create a virtual environment
+## 🔄 Configuration Options
 
-    ```bash
-    python3 -m venv venv
-    ```
+### Environment Variables (.env)
+```properties
+# Database (for OpenWebUI)
+DATABASE_URL=your_supabase_connection_string
+PGVECTOR_DB_URL=your_supabase_connection_string
 
-3. Activate the virtual environment
+# API Configuration
+OPENAI_API_KEY=your_gemini_api_key
+OPENAI_API_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+DEFAULT_MODELS=gemini-2.5-flash-preview-05-20
 
-    ```bash
-    source venv/bin/activate
-    ```
+# Embedding Configuration
+RAG_EMBEDDING_ENGINE=openai
+RAG_EMBEDDING_MODEL=text-embedding-004
+```
 
-4. Install the requirements
+### Native Function Settings
+- **GEMINI_API_KEY**: Your Google AI Studio API key
+- **ENABLE_VISION**: Enable video/image processing (default: true)
+- **AUTO_DETECT_YOUTUBE**: Auto-detect YouTube URLs (default: true)
+- **DEFAULT_VIDEO_FPS**: Video sampling rate (default: 1.0)
+- **MAX_TOKENS**: Maximum response tokens (default: 2048)
+- **TEMPERATURE**: Response creativity (default: 0.7)
 
-    ```bash
-    pip install -r requirements.txt
-    ```
+## 🏗️ Architecture
 
-5. Rename `.env.example` to `.env` and fill in the required environment variables
-6. Run the Open WebUI
+### Native API vs OpenAI-Compatible
 
-    ```bash
-    dotenv run open-webui serve
-    ```
+| Feature | OpenAI-Compatible | Native API |
+|---------|------------------|------------|
+| **Latency** | Higher (translation layer) | ✅ Lower (direct) |
+| **Models** | Limited selection | ✅ All latest models |
+| **Streaming** | Emulated | ✅ True SSE streaming |
+| **Video Support** | Basic | ✅ Full YouTube processing |
+| **Error Handling** | Generic | ✅ Gemini-specific |
+| **Features** | OpenAI subset | ✅ Full Gemini capabilities |
 
-7. Open the web browser and go to [`http://localhost:8080`](http://localhost:8080)
-8. Walk through the Open WebUI *get started* wizard and create an admin account. Make sure to remember your password :)
+### Technical Components
+- **YouTube Transcript API**: Video transcript extraction
+- **PyTube**: Video metadata extraction  
+- **Gemini Native API**: Direct AI processing
+- **Auto URL Detection**: Regex-based YouTube URL recognition
+- **Multimodal Processing**: Text, image, and video content
 
-### Option 2: Docker
+## 🧪 Testing
 
-See the [Open WebUI documentation]()
+### Test Native Function
+```bash
+python test_video_support.py
+```
 
+### Test YouTube Tool
+```bash
+python test_tool.py
+```
 
-## Troubleshooting
+### Expected Results
+- **Before**: "I can see the URL but cannot analyze the video"
+- **After**: Detailed video content analysis, transcription, visual descriptions
 
-### Stop the server
+## 🔧 Troubleshooting
 
-If you want to stop the server, open the terminal and press `CTRL + C`. This will stop the server and close the web browser.
+### Video Not Processing
+1. **Check Settings**:
+   - Ensure `ENABLE_VISION` = `true`
+   - Ensure `AUTO_DETECT_YOUTUBE` = `true`
+   - Verify Gemini API key is valid
 
-You can then run the server again with the command `dotenv run open-webui serve`.
+2. **Video Requirements**:
+   - Must be public YouTube video
+   - Video should have available transcript
+   - Try different video URL if issues persist
 
-### Resetting the database
+3. **Check Logs**:
+   - Look for "Auto-detected YouTube video" messages
+   - Verify no API quota errors
 
-If you want to reset the database, you can run the following SQL command in Supabase SQL editor:
+### Performance Issues
+- Use `gemini-2.5-flash-preview-05-20` for best video support
+- Lower `DEFAULT_VIDEO_FPS` for very long videos
+- Process one video at a time for reliability
+- Free tier: 8 hours of video per day limit
 
+### Database Reset (if needed)
 ```sql
 DO $$
 DECLARE
@@ -126,8 +230,38 @@ BEGIN
 END $$;
 ```
 
-### Warning
+⚠️ **CAUTION**: This deletes ALL database tables. Backup important data first.
 
-⚠️ **CAUTION**: The SQL command above will delete ALL tables in your database. Only use this if you want to completely reset your OpenWebUI installation. Make sure you have backups of any important data before running this command.
+## 📚 Additional Setup
 
-Remember that API keys should be kept secure and never committed to version control. Using services like Google Gemini API and Supabase may incur costs depending on your usage.
+### OpenWebUI Configuration
+1. **Models**: Go to Settings → Models → Default Models
+   - Select `gemini-2.5-flash-preview` or similar
+2. **Embeddings**: Settings → Documents → Embedding
+   - Engine: `https://generativelanguage.googleapis.com/v1beta/openai`
+   - API Key: Your Google API key
+   - Model: `text-embedding-004`
+
+### Development Setup
+- **Dependencies**: `pydantic>=2.0.0`, `aiohttp>=3.8.0`
+- **Python**: 3.10+ required
+- **Testing**: Run test files to verify functionality
+
+## 🎯 Usage Limitations
+
+- **YouTube**: Public videos only (no private/unlisted)
+- **Transcripts**: Must be available (auto-generated OK)
+- **API Limits**: Based on Google AI Studio quotas
+- **File Size**: Videos <20MB for inline processing
+- **Multiple Videos**: Up to 10 per request (Gemini 2.5+)
+
+## 🔐 Security
+
+- Keep API keys secure and never commit to version control
+- Use environment variables for sensitive configuration
+- Regular key rotation recommended
+- Monitor API usage and costs
+
+---
+
+**Status**: ✅ Production Ready - Full video understanding capabilities matching Google AI Studio
